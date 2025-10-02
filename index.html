@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF 文件分析器</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #f5f7fa;
+            --text-color: #333;
+            --border-color: #d1d5db;
+            --success-color: #28a745;
+            --error-color: #dc3545;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: #fff;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.75rem;
+        }
+
+        main {
+            padding: 2rem;
+        }
+
+        #drop-area {
+            border: 3px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 3rem;
+            text-align: center;
+            transition: border-color 0.3s, background-color 0.3s;
+            cursor: pointer;
+        }
+
+        #drop-area.highlight {
+            border-color: var(--primary-color);
+            background-color: #e9f2ff;
+        }
+
+        #drop-area p {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #666;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        #file-info {
+            margin-top: 1.5rem;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        #loader {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: var(--primary-color);
+            animation: spin 1s ease infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #result-container {
+            display: none;
+            margin-top: 2rem;
+        }
+
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .result-table th, .result-table td {
+            padding: 0.9rem 1.2rem;
+            border: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        .result-table th {
+            background-color: var(--secondary-color);
+            font-weight: 600;
+            width: 30%;
+        }
+        
+        .result-table td {
+            word-break: break-word;
+            white-space: pre-wrap; /* For line breaks in scope_of_work */
+        }
+
+        .status-message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1.5rem;
+            text-align: center;
+            font-weight: 500;
+        }
+        
+        .status-message.error {
+            background-color: #ffebee;
+            color: var(--error-color);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>PDF 文件重點資訊萃取</h1>
+        </header>
+        <main>
+            <div id="drop-area">
+                <input type="file" id="file-input" accept=".pdf">
+                <p>將 PDF 檔案拖曳至此處，或點擊選擇檔案</p>
+            </div>
+            <div id="file-info"></div>
+            <div id="loader">
+                <div class="spinner"></div>
+                <p>AI 正在分析文件，請稍候...</p>
+            </div>
+            
+            <div id="status-message-container"></div>
+
+            <div id="result-container">
+                <h2>分析結果</h2>
+                <table class="result-table">
+                    <tbody id="result-body"></tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const fileInfo = document.getElementById('file-info');
+        const loader = document.getElementById('loader');
+        const resultContainer = document.getElementById('result-container');
+        const resultBody = document.getElementById('result-body');
+        const statusContainer = document.getElementById('status-message-container');
+
+        // 請替換成你的 n8n Webhook URL
+        const N8N_WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL';
+
+        const fieldMapping = {
+            "project_mode": "專案承攬型態",
+            "owner_name": "業主名稱",
+            "project_no": "專案編號",
+            "requisition_no": "請購單編號",
+            "project_name": "專案名稱",
+            "work_name": "工程名稱",
+            "site_location": "工程地點",
+            "scope_of_work": "工程範圍",
+            "major_workfront": "主要工程工作量",
+            "work_period": "預計工期",
+            "guarantee_period": "保固期",
+        };
+
+        // 防止瀏覽器預設行為
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // 處理拖曳高亮效果
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, () => dropArea.classList.add('highlight'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, () => dropArea.classList.remove('highlight'), false);
+        });
+
+        // 處理檔案拖放
+        dropArea.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }
+
+        // 處理點擊選擇檔案
+        dropArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', function() {
+            handleFiles(this.files);
+        });
+
+        function handleFiles(files) {
+            if (files.length > 1) {
+                showStatusMessage('請一次上傳一個檔案。', 'error');
+                return;
+            }
+            const file = files[0];
+            if (file.type !== 'application/pdf') {
+                showStatusMessage('檔案格式錯誤，僅接受 PDF 檔案。', 'error');
+                return;
+            }
+            if (file.size > 20 * 1024 * 1024) { // 限制 20MB
+                 showStatusMessage('檔案過大，請上傳小於 20MB 的檔案。', 'error');
+                return;
+            }
+
+            fileInfo.textContent = `已選擇檔案：${file.name}`;
+            uploadFile(file);
+        }
+
+        async function uploadFile(file) {
+            resetUI();
+            loader.style.display = 'block';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(N8N_WEBHOOK_URL, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`伺服器錯誤: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                displayResults(data);
+
+            } catch (error) {
+                console.error('上傳或分析失敗:', error);
+                showStatusMessage(`處理失敗，請稍後再試或檢查 n8n workflow 狀態。錯誤訊息: ${error.message}`, 'error');
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function displayResults(data) {
+            resultBody.innerHTML = ''; // 清空舊資料
+            
+            // 確保按照我們定義的順序顯示
+            for (const key in fieldMapping) {
+                if (Object.prototype.hasOwnProperty.call(fieldMapping, key)) {
+                    const row = document.createElement('tr');
+                    const headerCell = document.createElement('th');
+                    const dataCell = document.createElement('td');
+
+                    headerCell.textContent = fieldMapping[key];
+                    
+                    let value = data[key];
+                    if (value === null || value === undefined) {
+                        value = 'N/A';
+                    } else if (Array.isArray(value)) {
+                        // 如果 scope_of_work 是陣列，轉換為條列式字串
+                        value = value.map(item => `• ${item}`).join('\n');
+                    }
+
+                    dataCell.textContent = value;
+                    
+                    row.appendChild(headerCell);
+                    row.appendChild(dataCell);
+                    resultBody.appendChild(row);
+                }
+            }
+
+            resultContainer.style.display = 'block';
+        }
+
+        function showStatusMessage(message, type = 'error') {
+            statusContainer.innerHTML = `<div class="status-message ${type}">${message}</div>`;
+        }
+
+        function resetUI() {
+            resultContainer.style.display = 'none';
+            statusContainer.innerHTML = '';
+            resultBody.innerHTML = '';
+        }
+    </script>
+
+</body>
+</html>
