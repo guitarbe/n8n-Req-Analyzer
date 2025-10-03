@@ -285,19 +285,20 @@
         }
 
         function displayResults(data) {
+    // --- 新增偵錯步驟 1 ---
+    // 在瀏覽器的開發者工具 Console 中，印出從 n8n 收到的最原始的資料
+    console.log("從 n8n 收到的原始資料:", JSON.stringify(data, null, 2));
+
     resultBody.innerHTML = ''; // 清空舊資料
 
-    // --- 新增的關鍵邏輯 ---
-    // 1. 先從回傳的陣列 data 中，取得第一個元素，也就是我們的結果物件
     const resultObject = data[0];
 
-    // 2. 增加一個保護措施，如果 resultObject 不存在 (例如回傳了空陣列)，就直接結束
     if (!resultObject) {
-        showStatusMessage('分析成功，但未回傳有效資料。', 'error');
+        showStatusMessage('分析成功，但未回傳有效資料。請檢查瀏覽器 Console 的紀錄。', 'error');
+        console.error("錯誤：resultObject 是空的或不存在。收到的 data 是：", data);
         return;
     }
-    // --- 關鍵邏輯結束 ---
-    
+
     // 確保按照我們定義的順序顯示
     for (const key in fieldMapping) {
         if (Object.prototype.hasOwnProperty.call(fieldMapping, key)) {
@@ -307,15 +308,23 @@
 
             headerCell.textContent = fieldMapping[key];
             
-            // 3. 修改這裡：從 resultObject 而不是 data 中取值
             let value = resultObject[key];
             if (value === null || value === undefined) {
                 value = 'N/A';
-            } else if (Array.isArray(value)) {
-                value = value.map(item => `• ${item}`).join('\n');
             }
 
-            dataCell.textContent = value;
+            // --- 新增偵錯步驟 2 ---
+            // 在 Console 中印出每一個正在處理的欄位與其值
+            console.log(`正在處理欄位: ${key}, 值:`, value);
+
+            // --- 關鍵修改 ---
+            // 檢查值是否為字串，若是，則將所有 \n 換成 <br> 標籤
+            // 並且改用 innerHTML 來設定儲存格內容，這樣 <br> 才能被正確渲染成換行
+            if (typeof value === 'string') {
+                dataCell.innerHTML = value.replace(/\n/g, '<br>');
+            } else {
+                dataCell.textContent = value;
+            }
             
             row.appendChild(headerCell);
             row.appendChild(dataCell);
