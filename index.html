@@ -285,35 +285,46 @@
         }
 
         function displayResults(data) {
-            resultBody.innerHTML = ''; // 清空舊資料
+    resultBody.innerHTML = ''; // 清空舊資料
+
+    // --- 新增的關鍵邏輯 ---
+    // 1. 先從回傳的陣列 data 中，取得第一個元素，也就是我們的結果物件
+    const resultObject = data[0];
+
+    // 2. 增加一個保護措施，如果 resultObject 不存在 (例如回傳了空陣列)，就直接結束
+    if (!resultObject) {
+        showStatusMessage('分析成功，但未回傳有效資料。', 'error');
+        return;
+    }
+    // --- 關鍵邏輯結束 ---
+    
+    // 確保按照我們定義的順序顯示
+    for (const key in fieldMapping) {
+        if (Object.prototype.hasOwnProperty.call(fieldMapping, key)) {
+            const row = document.createElement('tr');
+            const headerCell = document.createElement('th');
+            const dataCell = document.createElement('td');
+
+            headerCell.textContent = fieldMapping[key];
             
-            // 確保按照我們定義的順序顯示
-            for (const key in fieldMapping) {
-                if (Object.prototype.hasOwnProperty.call(fieldMapping, key)) {
-                    const row = document.createElement('tr');
-                    const headerCell = document.createElement('th');
-                    const dataCell = document.createElement('td');
-
-                    headerCell.textContent = fieldMapping[key];
-                    
-                    let value = data[key];
-                    if (value === null || value === undefined) {
-                        value = 'N/A';
-                    } else if (Array.isArray(value)) {
-                        // 如果 scope_of_work 是陣列，轉換為條列式字串
-                        value = value.map(item => `• ${item}`).join('\n');
-                    }
-
-                    dataCell.textContent = value;
-                    
-                    row.appendChild(headerCell);
-                    row.appendChild(dataCell);
-                    resultBody.appendChild(row);
-                }
+            // 3. 修改這裡：從 resultObject 而不是 data 中取值
+            let value = resultObject[key];
+            if (value === null || value === undefined) {
+                value = 'N/A';
+            } else if (Array.isArray(value)) {
+                value = value.map(item => `• ${item}`).join('\n');
             }
 
-            resultContainer.style.display = 'block';
+            dataCell.textContent = value;
+            
+            row.appendChild(headerCell);
+            row.appendChild(dataCell);
+            resultBody.appendChild(row);
         }
+    }
+
+    resultContainer.style.display = 'block';
+}
 
         function showStatusMessage(message, type = 'error') {
             statusContainer.innerHTML = `<div class="status-message ${type}">${message}</div>`;
